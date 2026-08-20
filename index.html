@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebChat</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- LOGIN -->
+    <div id="loginScreen" class="screen">
+        <div class="loginBox">
+            <div class="logo">WebChat</div>
+            <p class="subtitle">A peer-to-peer chat</p>
+
+            <input
+                id="usernameInput"
+                type="text"
+                maxlength="24"
+                placeholder="Choose a username"
+                autocomplete="off"
+            >
+
+            <button id="loginButton">Enter Chat</button>
+
+            <p class="smallText">
+                No account required. Your username is saved only in this browser.
+            </p>
+        </div>
+    </div>
+
+
+    <!-- APP -->
+    <div id="app" class="app hidden">
+
+        <!-- SERVER / CHANNEL SIDEBAR -->
+        <aside class="sidebar">
+
+            <div class="serverHeader">
+                <span>WebChat</span>
+                <button id="connectionButton" title="WebRTC Connection">⚡</button>
+            </div>
+
+            <div class="sectionTitle">
+                CHANNELS
+            </div>
+
+            <div id="channelList" class="channelList">
+                <button class="channel active" data-channel="general">
+                    <span>#</span> general
+                </button>
+
+                <button class="channel" data-channel="random">
+                    <span>#</span> random
+                </button>
+
+                <button class="channel" data-channel="gaming">
+                    <span>#</span> gaming
+                </button>
+            </div>
+
+            <div class="sidebarBottom">
+                <div class="currentUser">
+                    <div id="userAvatar" class="avatar">?</div>
+
+                    <div class="userInfo">
+                        <strong id="currentUsername">User</strong>
+                        <span>Online</span>
+                    </div>
+
+                    <button id="logoutButton" title="Log out">↪</button>
+                </div>
+            </div>
+
+        </aside>
+
+
+        <!-- MAIN CHAT -->
+        <main class="chat">
+
+            <header class="chatHeader">
+
+                <div>
+                    <h2 id="channelName"># general</h2>
+                    <p id="connectionStatus">Not connected</p>
+                </div>
+
+                <button id="mobileUsersButton" class="mobileOnly">
+                    ☰
+                </button>
+
+            </header>
+
+
+            <section id="messages" class="messages">
+                <div class="welcome">
+                    <div class="welcomeIcon">#</div>
+
+                    <h1>Welcome to #general</h1>
+
+                    <p>
+                        This is the beginning of this channel.
+                        Connect to another user to start chatting.
+                    </p>
+                </div>
+            </section>
+
+
+            <form id="messageForm" class="messageForm">
+
+                <div id="mentionSuggestions" class="mentionSuggestions hidden"></div>
+
+                <input
+                    id="messageInput"
+                    type="text"
+                    maxlength="2000"
+                    autocomplete="off"
+                    placeholder="Message #general"
+                >
+
+                <button type="submit">➤</button>
+
+            </form>
+
+        </main>
+
+
+        <!-- USERS -->
+        <aside id="usersSidebar" class="usersSidebar">
+
+            <div class="usersTitle">
+                ONLINE — <span id="onlineCount">1</span>
+            </div>
+
+            <div id="userList"></div>
+
+        </aside>
+
+    </div>
+
+
+    <!-- WEBRTC CONNECTION MODAL -->
+    <div id="connectionModal" class="modal hidden">
+
+        <div class="modalBox">
+
+            <button id="closeModal" class="closeButton">×</button>
+
+            <h2>Peer-to-Peer Connection</h2>
+
+            <p class="modalDescription">
+                WebChat doesn't use a server. Connect two browsers by
+                exchanging these connection codes.
+            </p>
+
+
+            <div class="connectionSection">
+
+                <h3>1. Create a connection</h3>
+
+                <button id="createOfferButton">
+                    Create Connection Code
+                </button>
+
+                <textarea
+                    id="offerOutput"
+                    readonly
+                    placeholder="Your connection code will appear here..."
+                ></textarea>
+
+                <button id="copyOfferButton">
+                    Copy Code
+                </button>
+
+            </div>
+
+
+            <div class="connectionSection">
+
+                <h3>2. Join someone</h3>
+
+                <textarea
+                    id="offerInput"
+                    placeholder="Paste their connection code here..."
+                ></textarea>
+
+                <button id="createAnswerButton">
+                    Generate Response
+                </button>
+
+                <textarea
+                    id="answerOutput"
+                    readonly
+                    placeholder="Your response will appear here..."
+                ></textarea>
+
+                <button id="copyAnswerButton">
+                    Copy Response
+                </button>
+
+            </div>
+
+
+            <div class="connectionSection">
+
+                <h3>3. Finish connection</h3>
+
+                <textarea
+                    id="answerInput"
+                    placeholder="Paste the response from the other person here..."
+                ></textarea>
+
+                <button id="finishConnectionButton">
+                    Connect
+                </button>
+
+            </div>
+
+            <div id="webrtcStatus" class="webrtcStatus">
+                Not connected
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <script src="script.js"></script>
+</body>
+</html>
