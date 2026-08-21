@@ -1,232 +1,263 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebChat</title>
-    <link rel="stylesheet" href="style.css">
-</head>
+rules_version = '2';
 
-<body>
+service cloud.firestore {
 
-    <!-- LOGIN -->
-    <div id="loginScreen" class="screen">
-        <div class="loginBox">
-            <div class="logo">WebChat</div>
-            <p class="subtitle">A peer-to-peer chat</p>
+    match /databases/{database}/documents {
 
-            <input
-                id="usernameInput"
-                type="text"
-                maxlength="24"
-                placeholder="Choose a username"
-                autocomplete="off"
-            >
 
-            <button id="loginButton">Enter Chat</button>
+        // =====================================================
+        // HELPERS
+        // =====================================================
 
-            <p class="smallText">
-                No account required. Your username is saved only in this browser.
-            </p>
-        </div>
-    </div>
+        function signedIn() {
+            return request.auth != null;
+        }
 
 
-    <!-- APP -->
-    <div id="app" class="app hidden">
+        function isAdmin() {
 
-        <!-- SERVER / CHANNEL SIDEBAR -->
-        <aside class="sidebar">
+            return signedIn()
+                && exists(
+                    /databases/$(database)
+                    /documents/admins/$(request.auth.uid)
+                );
 
-            <div class="serverHeader">
-                <span>WebChat</span>
-                <button id="connectionButton" title="WebRTC Connection">⚡</button>
-            </div>
+        }
 
-            <div class="sectionTitle">
-                CHANNELS
-            </div>
 
-            <div id="channelList" class="channelList">
-                <button class="channel active" data-channel="general">
-                    <span>#</span> general
-                </button>
+        function validUsername() {
 
-                <button class="channel" data-channel="random">
-                    <span>#</span> random
-                </button>
+            return
+                request.resource.data.username is string
+                &&
+                request.resource.data.username.size() >= 2
+                &&
+                request.resource.data.username.size() <= 25;
 
-                <button class="channel" data-channel="gaming">
-                    <span>#</span> gaming
-                </button>
-            </div>
+        }
 
-            <div class="sidebarBottom">
-                <div class="currentUser">
-                    <div id="userAvatar" class="avatar">?</div>
 
-                    <div class="userInfo">
-                        <strong id="currentUsername">User</strong>
-                        <span>Online</span>
-                    </div>
+        // =====================================================
+        // USERS
+        // =====================================================
 
-                    <button id="logoutButton" title="Log out">↪</button>
-                </div>
-            </div>
+        match /users/{uid} {
 
-        </aside>
+            allow read:
+                if signedIn();
 
+            allow create:
+                if signedIn()
+                && request.auth.uid == uid
+                && validUsername();
 
-        <!-- MAIN CHAT -->
-        <main class="chat">
+            allow update:
+                if signedIn()
+                && request.auth.uid == uid
+                && validUsername();
 
-            <header class="chatHeader">
+            allow delete:
+                if signedIn()
+                && request.auth.uid == uid;
+        }
 
-                <div>
-                    <h2 id="channelName"># general</h2>
-                    <p id="connectionStatus">Not connected</p>
-                </div>
 
-                <button id="mobileUsersButton" class="mobileOnly">
-                    ☰
-                </button>
+        // =====================================================
+        // ADMIN RECORDS
+        // =====================================================
+        //
+        // IMPORTANT:
+        //
+        // DO NOT allow clients to create these.
+        //
+        // You create:
+        //
+        // admins/YOUR_FIREBASE_UID
+        //
+        // manually from the Firebase console.
+        //
+        // The document can simply contain:
+        //
+        // {
+        //     "role": "admin"
+        // }
+        //
 
-            </header>
+        match /admins/{uid} {
 
+            allow read:
+                if signedIn();
 
-            <section id="messages" class="messages">
-                <div class="welcome">
-                    <div class="welcomeIcon">#</div>
+            allow create:
+                if false;
 
-                    <h1>Welcome to #general</h1>
+            allow update:
+                if false;
 
-                    <p>
-                        This is the beginning of this channel.
-                        Connect to another user to start chatting.
-                    </p>
-                </div>
-            </section>
+            allow delete:
+                if false;
+        }
 
 
-            <form id="messageForm" class="messageForm">
+        // =====================================================
+        // ROOMS
+        // =====================================================
 
-                <div id="mentionSuggestions" class="mentionSuggestions hidden"></div>
+        match /rooms/{roomId} {
 
-                <input
-                    id="messageInput"
-                    type="text"
-                    maxlength="2000"
-                    autocomplete="off"
-                    placeholder="Message #general"
-                >
+            allow read:
+                if signedIn();
 
-                <button type="submit">➤</button>
+            allow create:
+                if signedIn();
 
-            </form>
+            allow update:
+                if signedIn();
 
-        </main>
+            allow delete:
+                if isAdmin();
 
 
-        <!-- USERS -->
-        <aside id="usersSidebar" class="usersSidebar">
+            // =================================================
+            // ROOM MEMBERS
+            // =================================================
 
-            <div class="usersTitle">
-                ONLINE — <span id="onlineCount">1</span>
-            </div>
+            match /members/{uid} {
 
-            <div id="userList"></div>
+                allow read:
+                    if signedIn();
 
-        </aside>
+                allow create:
+                    if signedIn()
+                    && request.auth.uid == uid;
 
-    </div>
+                allow update:
+                    if signedIn()
+                    && request.auth.uid == uid;
 
+                allow delete:
+                    if signedIn()
+                    && (
+                        request.auth.uid == uid
+                        ||
+                        isAdmin()
+                    );
+            }
 
-    <!-- WEBRTC CONNECTION MODAL -->
-    <div id="connectionModal" class="modal hidden">
 
-        <div class="modalBox">
+            // =================================================
+            // MESSAGES
+            // =================================================
 
-            <button id="closeModal" class="closeButton">×</button>
+            match /messages/{messageId} {
 
-            <h2>Peer-to-Peer Connection</h2>
 
-            <p class="modalDescription">
-                WebChat doesn't use a server. Connect two browsers by
-                exchanging these connection codes.
-            </p>
+                allow read:
+                    if signedIn();
 
 
-            <div class="connectionSection">
+                // ---------------------------------------------
+                // CREATE
+                // ---------------------------------------------
 
-                <h3>1. Create a connection</h3>
+                allow create:
+                    if signedIn()
 
-                <button id="createOfferButton">
-                    Create Connection Code
-                </button>
+                    && request.resource.data.authorUid
+                        == request.auth.uid
 
-                <textarea
-                    id="offerOutput"
-                    readonly
-                    placeholder="Your connection code will appear here..."
-                ></textarea>
+                    && request.resource.data.text
+                        is string
 
-                <button id="copyOfferButton">
-                    Copy Code
-                </button>
+                    && request.resource.data.text.size()
+                        <= 2000
 
-            </div>
+                    && request.resource.data.channel
+                        is string
 
+                    && request.resource.data.channel.size()
+                        <= 64
 
-            <div class="connectionSection">
+                    && request.resource.data.dontDelete
+                        == false
 
-                <h3>2. Join someone</h3>
+                    && request.resource.data.edited
+                        == false;
 
-                <textarea
-                    id="offerInput"
-                    placeholder="Paste their connection code here..."
-                ></textarea>
 
-                <button id="createAnswerButton">
-                    Generate Response
-                </button>
+                // ---------------------------------------------
+                // UPDATE
+                // ---------------------------------------------
 
-                <textarea
-                    id="answerOutput"
-                    readonly
-                    placeholder="Your response will appear here..."
-                ></textarea>
+                allow update:
+                    if signedIn()
 
-                <button id="copyAnswerButton">
-                    Copy Response
-                </button>
+                    && (
 
-            </div>
+                        // Owner can edit their own text.
+                        (
+                            resource.data.authorUid
+                            == request.auth.uid
 
+                            && request.resource.data.authorUid
+                            == resource.data.authorUid
 
-            <div class="connectionSection">
+                            && request.resource.data.dontDelete
+                            == resource.data.dontDelete
 
-                <h3>3. Finish connection</h3>
+                            && request.resource.data.channel
+                            == resource.data.channel
 
-                <textarea
-                    id="answerInput"
-                    placeholder="Paste the response from the other person here..."
-                ></textarea>
+                            && request.resource.data.text
+                            is string
 
-                <button id="finishConnectionButton">
-                    Connect
-                </button>
+                            && request.resource.data.text.size()
+                            <= 2000
+                        )
 
-            </div>
+                        ||
 
-            <div id="webrtcStatus" class="webrtcStatus">
-                Not connected
-            </div>
+                        // Admin can modify moderation fields.
+                        (
+                            isAdmin()
 
-        </div>
+                            && request.resource.data.authorUid
+                            == resource.data.authorUid
 
-    </div>
+                            && request.resource.data.channel
+                            == resource.data.channel
 
+                            && request.resource.data.text
+                            == resource.data.text
+                        )
+                    );
 
-    <script src="script.js"></script>
-</body>
-</html>
+
+                // ---------------------------------------------
+                // DELETE
+                // ---------------------------------------------
+
+                allow delete:
+                    if signedIn()
+
+                    && (
+
+                        // Admins can delete anything.
+                        isAdmin()
+
+                        ||
+
+                        // Users can delete their own
+                        // unprotected messages.
+                        (
+                            resource.data.authorUid
+                            == request.auth.uid
+
+                            && resource.data.dontDelete
+                            == false
+                        )
+                    );
+            }
+        }
+    }
+}
