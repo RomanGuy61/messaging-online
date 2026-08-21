@@ -490,7 +490,7 @@ const DEFAULT_CHANNELS = [
     "general",
     "random",
     "band-general",
-    "announcements
+    "announcements"
 ];
 
 
