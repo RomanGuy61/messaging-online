@@ -1,263 +1,339 @@
-rules_version = '2';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#111318">
 
-service cloud.firestore {
+    <title>WebChat</title>
 
-    match /databases/{database}/documents {
+    <link rel="stylesheet" href="style.css">
+</head>
 
+<body>
 
-        // =====================================================
-        // HELPERS
-        // =====================================================
+<!-- LOGIN -->
+<div id="loginScreen" class="screen">
+    <div class="login-card">
 
-        function signedIn() {
-            return request.auth != null;
-        }
+        <div class="logo">WebChat</div>
+        <div class="login-subtitle">
+            Simple realtime chat
+        </div>
 
+        <label for="usernameInput">
+            Username
+        </label>
 
-        function isAdmin() {
+        <input
+            id="usernameInput"
+            maxlength="24"
+            autocomplete="off"
+            placeholder="Choose a username"
+        >
 
-            return signedIn()
-                && exists(
-                    /databases/$(database)
-                    /documents/admins/$(request.auth.uid)
-                );
+        <button id="loginButton" class="primary-button">
+            Enter WebChat
+        </button>
 
-        }
+        <div id="loginError" class="error"></div>
 
+        <p class="tiny">
+            No email, password, or account setup required.
+            Your username is saved on this device.
+        </p>
 
-        function validUsername() {
+    </div>
+</div>
 
-            return
-                request.resource.data.username is string
-                &&
-                request.resource.data.username.size() >= 2
-                &&
-                request.resource.data.username.size() <= 25;
 
-        }
+<!-- MAIN APP -->
+<div id="app" class="app hidden">
 
+    <!-- LEFT SIDEBAR -->
+    <aside class="sidebar">
 
-        // =====================================================
-        // USERS
-        // =====================================================
+        <div class="brand">
+            <span>WebChat</span>
 
-        match /users/{uid} {
+            <button
+                id="settingsButton"
+                class="icon-button"
+                title="Settings"
+            >
+                ⚙
+            </button>
+        </div>
 
-            allow read:
-                if signedIn();
 
-            allow create:
-                if signedIn()
-                && request.auth.uid == uid
-                && validUsername();
+        <div class="sidebar-title">
+            CHANNELS
+        </div>
 
-            allow update:
-                if signedIn()
-                && request.auth.uid == uid
-                && validUsername();
+        <div id="channelList" class="channels"></div>
 
-            allow delete:
-                if signedIn()
-                && request.auth.uid == uid;
-        }
 
+        <div class="sidebar-spacer"></div>
 
-        // =====================================================
-        // ADMIN RECORDS
-        // =====================================================
-        //
-        // IMPORTANT:
-        //
-        // DO NOT allow clients to create these.
-        //
-        // You create:
-        //
-        // admins/YOUR_FIREBASE_UID
-        //
-        // manually from the Firebase console.
-        //
-        // The document can simply contain:
-        //
-        // {
-        //     "role": "admin"
-        // }
-        //
 
-        match /admins/{uid} {
+        <div class="account">
 
-            allow read:
-                if signedIn();
+            <div id="myAvatar" class="avatar">
+                ?
+            </div>
 
-            allow create:
-                if false;
+            <div class="account-info">
+                <strong id="myUsername">User</strong>
+                <span id="myRole">Member</span>
+            </div>
 
-            allow update:
-                if false;
+            <button
+                id="logoutButton"
+                class="icon-button"
+                title="Log out"
+            >
+                ↪
+            </button>
 
-            allow delete:
-                if false;
-        }
+        </div>
 
+    </aside>
 
-        // =====================================================
-        // ROOMS
-        // =====================================================
 
-        match /rooms/{roomId} {
+    <!-- CHAT -->
+    <main class="chat">
 
-            allow read:
-                if signedIn();
+        <header class="chat-header">
 
-            allow create:
-                if signedIn();
+            <div>
+                <h2 id="channelTitle">
+                    # general
+                </h2>
 
-            allow update:
-                if signedIn();
+                <span id="connectionStatus">
+                    Connecting...
+                </span>
+            </div>
 
-            allow delete:
-                if isAdmin();
+            <div class="header-actions">
 
+                <button
+                    id="roomButton"
+                    class="header-button"
+                >
+                    Room
+                </button>
 
-            // =================================================
-            // ROOM MEMBERS
-            // =================================================
+                <button
+                    id="usersButton"
+                    class="header-button mobile-button"
+                >
+                    Users
+                </button>
 
-            match /members/{uid} {
+            </div>
 
-                allow read:
-                    if signedIn();
+        </header>
 
-                allow create:
-                    if signedIn()
-                    && request.auth.uid == uid;
 
-                allow update:
-                    if signedIn()
-                    && request.auth.uid == uid;
+        <section
+            id="messages"
+            class="messages"
+        ></section>
 
-                allow delete:
-                    if signedIn()
-                    && (
-                        request.auth.uid == uid
-                        ||
-                        isAdmin()
-                    );
-            }
 
+        <div
+            id="typingIndicator"
+            class="typing"
+        ></div>
 
-            // =================================================
-            // MESSAGES
-            // =================================================
 
-            match /messages/{messageId} {
+        <form
+            id="messageForm"
+            class="message-form"
+        >
 
+            <div
+                id="mentionSuggestions"
+                class="mention-suggestions hidden"
+            ></div>
 
-                allow read:
-                    if signedIn();
+            <textarea
+                id="messageInput"
+                rows="1"
+                maxlength="2000"
+                autocomplete="off"
+                placeholder="Message #general"
+            ></textarea>
 
+            <button
+                class="send-button"
+                type="submit"
+            >
+                ➤
+            </button>
 
-                // ---------------------------------------------
-                // CREATE
-                // ---------------------------------------------
+        </form>
 
-                allow create:
-                    if signedIn()
+    </main>
 
-                    && request.resource.data.authorUid
-                        == request.auth.uid
 
-                    && request.resource.data.text
-                        is string
+    <!-- USERS -->
+    <aside
+        id="usersSidebar"
+        class="users-sidebar"
+    >
 
-                    && request.resource.data.text.size()
-                        <= 2000
+        <div class="users-heading">
+            ONLINE
+            <span id="onlineCount">0</span>
+        </div>
 
-                    && request.resource.data.channel
-                        is string
+        <div id="userList"></div>
 
-                    && request.resource.data.channel.size()
-                        <= 64
+    </aside>
 
-                    && request.resource.data.dontDelete
-                        == false
+</div>
 
-                    && request.resource.data.edited
-                        == false;
 
+<!-- ROOM MODAL -->
+<div id="roomModal" class="modal hidden">
 
-                // ---------------------------------------------
-                // UPDATE
-                // ---------------------------------------------
+    <div class="modal-card">
 
-                allow update:
-                    if signedIn()
+        <button
+            class="modal-close"
+            data-close="roomModal"
+        >
+            ×
+        </button>
 
-                    && (
+        <h2>Chat Room</h2>
 
-                        // Owner can edit their own text.
-                        (
-                            resource.data.authorUid
-                            == request.auth.uid
+        <p>
+            Everyone using the same room can see the same
+            channels and messages.
+        </p>
 
-                            && request.resource.data.authorUid
-                            == resource.data.authorUid
+        <div class="room-code">
+            <span id="roomCode">Loading...</span>
 
-                            && request.resource.data.dontDelete
-                            == resource.data.dontDelete
+            <button id="copyRoomButton">
+                Copy
+            </button>
+        </div>
 
-                            && request.resource.data.channel
-                            == resource.data.channel
+        <button
+            id="shareRoomButton"
+            class="primary-button"
+        >
+            Share Room
+        </button>
 
-                            && request.resource.data.text
-                            is string
+        <div class="join-room">
 
-                            && request.resource.data.text.size()
-                            <= 2000
-                        )
+            <label>
+                Join another room
+            </label>
 
-                        ||
+            <input
+                id="roomInput"
+                maxlength="32"
+                placeholder="Room code"
+            >
 
-                        // Admin can modify moderation fields.
-                        (
-                            isAdmin()
+            <button
+                id="joinRoomButton"
+                class="secondary-button"
+            >
+                Join
+            </button>
 
-                            && request.resource.data.authorUid
-                            == resource.data.authorUid
+        </div>
 
-                            && request.resource.data.channel
-                            == resource.data.channel
+    </div>
 
-                            && request.resource.data.text
-                            == resource.data.text
-                        )
-                    );
+</div>
 
 
-                // ---------------------------------------------
-                // DELETE
-                // ---------------------------------------------
+<!-- SETTINGS MODAL -->
+<div id="settingsModal" class="modal hidden">
 
-                allow delete:
-                    if signedIn()
+    <div class="modal-card">
 
-                    && (
+        <button
+            class="modal-close"
+            data-close="settingsModal"
+        >
+            ×
+        </button>
 
-                        // Admins can delete anything.
-                        isAdmin()
+        <h2>Settings</h2>
 
-                        ||
+        <label>
+            Username
+        </label>
 
-                        // Users can delete their own
-                        // unprotected messages.
-                        (
-                            resource.data.authorUid
-                            == request.auth.uid
+        <input
+            id="settingsUsername"
+            maxlength="24"
+        >
 
-                            && resource.data.dontDelete
-                            == false
-                        )
-                    );
-            }
-        }
-    }
-}
+        <button
+            id="saveSettingsButton"
+            class="primary-button"
+        >
+            Save
+        </button>
+
+        <div
+            id="adminSettings"
+            class="admin-settings hidden"
+        >
+
+            <h3>Admin</h3>
+
+            <button
+                id="clearChannelButton"
+                class="danger-button"
+            >
+                Clear Channel
+            </button>
+
+            <button
+                id="cleanupButton"
+                class="secondary-button"
+            >
+                Clean Old Messages
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- ADMIN MESSAGE MENU -->
+<div
+    id="messageMenu"
+    class="message-menu hidden"
+>
+    <button id="protectMessageButton">
+        🔒 Don't Delete
+    </button>
+
+    <button id="unprotectMessageButton">
+        🔓 Allow Deletion
+    </button>
+
+    <button id="adminDeleteButton">
+        🗑 Delete
+    </button>
+</div>
+
+
+<script type="module" src="script.js"></script>
+
+</body>
+</html>
