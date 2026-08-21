@@ -489,7 +489,8 @@ function updateAccountUI() {
 const DEFAULT_CHANNELS = [
     "general",
     "random",
-    "gaming"
+    "band-general",
+    "announcements
 ];
 
 
