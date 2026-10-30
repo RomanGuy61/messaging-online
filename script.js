@@ -2669,6 +2669,39 @@ document
 
 
 // ============================================================
+// WELCOME POPUP (FIRST VISIT)
+// ============================================================
+
+const welcomePopup =
+    $("welcomePopup");
+
+const welcomeOkButton =
+    $("welcomeOkButton");
+
+if (
+    welcomePopup &&
+    !localStorage.getItem("webchat_welcome_seen")
+) {
+    welcomePopup.classList.remove("hidden");
+}
+
+if (welcomeOkButton) {
+    welcomeOkButton.addEventListener(
+        "click",
+        () => {
+            localStorage.setItem(
+                "webchat_welcome_seen",
+                "true"
+            );
+
+            welcomePopup.classList.add(
+                "hidden"
+            );
+        }
+    );
+}
+
+// ============================================================
 // ESCAPE HTML
 // ============================================================
 

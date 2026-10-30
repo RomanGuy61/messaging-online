@@ -1146,6 +1146,46 @@ button {
     color: #dcdee1;
 }
 
+/* WELCOME POPUP */
+.welcome-popup {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 20px;
+
+    background: rgba(0,0,0,.72);
+}
+
+.welcome-popup-card {
+    width: min(420px, 100%);
+
+    padding: 28px;
+
+    border: 1px solid var(--border);
+    border-radius: 14px;
+
+    background: #191b21;
+
+    box-shadow: 0 30px 80px rgba(0,0,0,.5);
+
+    text-align: center;
+}
+
+.welcome-popup-card h2 {
+    margin: 0 0 12px;
+}
+
+.welcome-popup-card p {
+    color: var(--muted);
+    line-height: 1.5;
+    margin: 0 0 20px;
+}
+
 @media (max-width: 600px) {
 
     .sidebar {
