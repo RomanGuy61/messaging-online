@@ -154,9 +154,30 @@
         >
 
             <div
+                id="imagePreview"
+                class="image-preview hidden"
+            ></div>
+
+            <div
                 id="mentionSuggestions"
                 class="mention-suggestions hidden"
             ></div>
+
+            <button
+                id="attachButton"
+                class="attach-button"
+                type="button"
+                title="Attach image"
+            >
+                📎
+            </button>
+
+            <input
+                id="imageInput"
+                type="file"
+                accept="image/*"
+                hidden
+            >
 
             <textarea
                 id="messageInput"
@@ -332,6 +353,15 @@
     </button>
 </div>
 
+
+<!-- FLAGGED CONTENT MODAL (ADMIN) -->
+<div id="flaggedModal" class="modal hidden">
+    <div class="modal-card">
+        <button class="modal-close" data-close="flaggedModal">×</button>
+        <h2>Flagged Content (Admin Only)</h2>
+        <div id="flaggedContent"></div>
+    </div>
+</div>
 
 <script type="module" src="script.js"></script>
 

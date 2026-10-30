@@ -27,6 +27,13 @@ import {
     writeBatch
 } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
 
+import {
+    getStorage,
+    ref as storageRef,
+    uploadBytes,
+    getDownloadURL
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-storage.js";
+
 
 // ============================================================
 // FIREBASE CONFIG
@@ -62,6 +69,9 @@ const auth =
 const db =
     getFirestore(app);
 
+const storage =
+    getStorage(app);
+
 
 // ============================================================
 // SETTINGS
@@ -80,6 +90,12 @@ const USERNAME_KEY =
 
 const ROOM_KEY =
     "webchat_room";
+
+const BANNED_WORDS = [
+    "fuck","shit","bitch","asshole","damn","crap","bastard",
+    "dick","pussy","cock","cunt","slut","whore","nigger","nigga",
+    "faggot","retard","porn","xxx","nsfw"
+];
 
 
 // ============================================================
@@ -108,6 +124,9 @@ let currentAdmin = false;
 let selectedMessage = null;
 
 let messageCache = [];
+
+let pendingImageFile = null;
+let pendingImageDataUrl = null;
 
 
 // ============================================================
@@ -152,6 +171,15 @@ const connectionStatus =
 
 const messagesElement =
     $("messages");
+
+const attachButton =
+    $("attachButton");
+
+const imageInput =
+    $("imageInput");
+
+const imagePreview =
+    $("imagePreview");
 
 const messageForm =
     $("messageForm");
@@ -1010,6 +1038,226 @@ function subscribeMessages() {
 
 
 // ============================================================
+// IMAGE ATTACH
+// ============================================================
+
+attachButton.addEventListener(
+    "click",
+    () => {
+        imageInput.click();
+    }
+);
+
+imageInput.addEventListener(
+    "change",
+    async () => {
+        const file =
+            imageInput.files?.[0];
+
+        if (!file) return;
+
+        if (!file.type.startsWith("image/")) {
+            alert("Please select an image file.");
+            imageInput.value = "";
+            return;
+        }
+
+        if (file.size > 5 * 1024 * 1024) {
+            alert("Image must be under 5MB.");
+            imageInput.value = "";
+            return;
+        }
+
+        pendingImageFile = file;
+
+        const reader = new FileReader();
+
+        reader.onload = event => {
+            pendingImageDataUrl =
+                event.target.result;
+
+            imagePreview.innerHTML = `
+                <img src="${pendingImageDataUrl}" class="preview-image">
+                <button type="button" id="removeImage" class="remove-image">×</button>
+            `;
+
+            imagePreview.classList.remove("hidden");
+
+            const remove =
+                $("removeImage");
+
+            if (remove) {
+                remove.addEventListener(
+                    "click",
+                    clearPendingImage
+                );
+            }
+        };
+
+        reader.readAsDataURL(file);
+    }
+);
+
+function clearPendingImage() {
+    pendingImageFile = null;
+    pendingImageDataUrl = null;
+    imageInput.value = "";
+    imagePreview.classList.add("hidden");
+    imagePreview.innerHTML = "";
+}
+
+// ============================================================
+// NSFW / MODERATION HELPERS
+// ============================================================
+
+let nsfwModelPromise = null;
+
+async function loadScript(src) {
+    return new Promise((resolve, reject) => {
+        if (document.querySelector(`script[src="${src}"]`)) {
+            resolve();
+            return;
+        }
+        const script = document.createElement("script");
+        script.src = src;
+        script.async = true;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error("Failed to load " + src));
+        document.head.appendChild(script);
+    });
+}
+
+async function getNsfwModel() {
+    if (nsfwModelPromise) return nsfwModelPromise;
+
+    nsfwModelPromise = (async () => {
+        await loadScript(
+            "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"
+        );
+
+        await loadScript(
+            "https://cdn.jsdelivr.net/npm/nsfwjs@2.4.2/dist/nsfwjs.min.js"
+        );
+
+        if (!window.nsfwjs) {
+            throw new Error("nsfwjs not available");
+        }
+
+        return await window.nsfwjs.load();
+    })();
+
+    return nsfwModelPromise;
+}
+
+async function fileToImageElement(fileOrDataUrl) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("Image load failed"));
+
+        if (typeof fileOrDataUrl === "string") {
+            img.src = fileOrDataUrl;
+        } else {
+            const reader = new FileReader();
+            reader.onload = e => { img.src = e.target.result; };
+            reader.onerror = reject;
+            reader.readAsDataURL(fileOrDataUrl);
+        }
+    });
+}
+
+async function checkImageContent(fileOrDataUrl) {
+    try {
+        const model = await getNsfwModel();
+        const img = await fileToImageElement(
+            fileOrDataUrl instanceof File
+                ? fileOrDataUrl
+                : fileOrDataUrl
+        );
+
+        const predictions = await model.classify(img);
+
+        const bad = predictions.find(p =>
+            ["Porn", "Hentai", "Sexy"].includes(p.className) &&
+            p.probability > 0.55
+        );
+
+        if (bad) {
+            return {
+                inappropriate: true,
+                reason: `Inappropriate image detected (${bad.className}, ${Math.round(bad.probability * 100)}%)`
+            };
+        }
+
+        return { inappropriate: false, reason: null };
+    } catch (error) {
+        console.error("NSFW check failed:", error);
+        // Fail open to keep image sending functional if moderation unavailable.
+        return { inappropriate: false, reason: "moderation_unavailable" };
+    }
+}
+
+function checkTextContent(text) {
+    const lower = (text || "").toLowerCase();
+    const hit = BANNED_WORDS.find(word => lower.includes(word));
+    if (hit) {
+        return {
+            inappropriate: true,
+            reason: `Blocked word detected: "${hit}"`
+        };
+    }
+    return { inappropriate: false, reason: null };
+}
+
+async function recordFlaggedAttempt({ type, reason, content }) {
+    try {
+        const flaggedRef = await addDoc(
+            collection(db, "rooms", currentRoom, "flagged"),
+            {
+                type,
+                reason,
+                content,
+                authorUid: currentUser.uid,
+                author: profile.username,
+                displayName: profile.displayName,
+                channel: currentChannel,
+                createdAt: serverTimestamp(),
+                reviewed: false
+            }
+        );
+
+        return flaggedRef.id;
+    } catch (error) {
+        console.error("Failed to record flagged attempt:", error);
+        return null;
+    }
+}
+
+async function postSystemMessage(text, flaggedId = null) {
+    try {
+        await addDoc(
+            messagesRef(),
+            {
+                authorUid: "system",
+                author: "System",
+                displayName: "System",
+                text,
+                channel: currentChannel,
+                createdAt: serverTimestamp(),
+                dontDelete: true,
+                edited: false,
+                isSystem: true,
+                flaggedId
+            }
+        );
+    } catch (error) {
+        console.error("Failed to post system message:", error);
+    }
+}
+
+// ============================================================
 // SEND MESSAGE
 // ============================================================
 
@@ -1022,72 +1270,137 @@ messageForm.addEventListener(
         const text =
             messageInput.value.trim();
 
-
-        if (!text) return;
+        if (!text && !pendingImageFile) return;
 
         if (!profile) return;
 
+        // Text filtering
+        if (text) {
+            const textCheck =
+                checkTextContent(text);
+
+            if (textCheck.inappropriate) {
+                const flaggedId =
+                    await recordFlaggedAttempt({
+                        type: "text",
+                        reason: textCheck.reason,
+                        content: text
+                    });
+
+                await postSystemMessage(
+                    `⚠️ ${cleanDisplayName(profile.displayName)} attempted to send inappropriate text and was blocked. (${textCheck.reason})`,
+                    flaggedId
+                );
+
+                messageInput.value = "";
+                resizeInput();
+                hideMentionSuggestions();
+                clearPendingImage();
+                return;
+            }
+        }
+
+        // Image handling
+        let imageUrl = null;
+
+        if (pendingImageFile) {
+            const imageCheck =
+                await checkImageContent(
+                    pendingImageFile
+                );
+
+            if (imageCheck.inappropriate) {
+                const flaggedId =
+                    await recordFlaggedAttempt({
+                        type: "image",
+                        reason: imageCheck.reason,
+                        content: pendingImageDataUrl
+                    });
+
+                await postSystemMessage(
+                    `⚠️ ${cleanDisplayName(profile.displayName)} attempted to send an inappropriate image and was blocked. (${imageCheck.reason})`,
+                    flaggedId
+                );
+
+                clearPendingImage();
+                return;
+            }
+
+            try {
+                const file = pendingImageFile;
+                const path =
+                    `rooms/${currentRoom}/images/${Date.now()}_${file.name}`;
+
+                const ref =
+                    storageRef(
+                        storage,
+                        path
+                    );
+
+                await uploadBytes(
+                    ref,
+                    file
+                );
+
+                imageUrl =
+                    await getDownloadURL(ref);
+            }
+            catch (error) {
+                console.error(error);
+                alert("Image could not be uploaded.");
+                return;
+            }
+        }
 
         try {
+            const messageData = {
+                authorUid:
+                    currentUser.uid,
+
+                author:
+                    profile.username,
+
+                displayName:
+                    profile.displayName,
+
+                text:
+                    text,
+
+                channel:
+                    currentChannel,
+
+                createdAt:
+                    serverTimestamp(),
+
+                dontDelete:
+                    false,
+
+                edited:
+                    false
+            };
+
+            if (imageUrl) {
+                messageData.imageUrl =
+                    imageUrl;
+            }
 
             await addDoc(
                 messagesRef(),
-                {
-                    authorUid:
-                        currentUser.uid,
-
-                    author:
-                        profile.username,
-
-                    displayName:
-                        profile.displayName,
-
-                    text:
-                        text,
-
-                    channel:
-                        currentChannel,
-
-                    createdAt:
-                        serverTimestamp(),
-
-                    dontDelete:
-                        false,
-
-                    edited:
-                        false
-                }
+                messageData
             );
-
 
             messageInput.value = "";
-
             resizeInput();
-
             hideMentionSuggestions();
-
-
-            /*
-                Admins can perform cleanup after sending.
-
-                The cleanup operation skips protected messages.
-            */
+            clearPendingImage();
 
             if (currentAdmin) {
-
                 await cleanupOldMessages();
-
             }
-
         }
         catch (error) {
-
             console.error(error);
-
-            alert(
-                "Message could not be sent."
-            );
-
+            alert("Message could not be sent.");
         }
 
     }
@@ -1135,7 +1448,9 @@ function renderMessages() {
                 );
 
             element.className =
-                "message";
+                message.isSystem
+                    ? "message system-message"
+                    : "message";
 
 
             const display =
@@ -1221,9 +1536,49 @@ function renderMessages() {
 
                     <div class="message-text">
                         ${formatMessage(
-                            message.text
+                            message.text || ""
                         )}
                     </div>
+
+                    ${
+                        message.imageUrl
+                        ?
+                        `<div class="message-image-wrap">
+                            <img
+                                src="${escapeHTML(message.imageUrl)}"
+                                class="message-image"
+                                alt="image"
+                            >
+                        </div>`
+                        :
+                        ""
+                    }
+
+                    ${
+                        message.flaggedId && currentAdmin
+                        ?
+                        `<button
+                            class="view-flagged-button"
+                            data-flagged="${escapeHTML(message.flaggedId)}"
+                        >
+                            🔍 View attempted content
+                        </button>`
+                        :
+                        ""
+                    }
+
+                    ${
+                        !message.isSystem
+                        ?
+                        `<button
+                            class="flag-message-button"
+                            data-flagmsg="${escapeHTML(message.id)}"
+                        >
+                            🚩 Flag
+                        </button>`
+                        :
+                        ""
+                    }
 
                 </div>
 
@@ -1340,6 +1695,36 @@ function renderMessages() {
             }
 
 
+            const viewFlaggedButton =
+                element.querySelector(
+                    ".view-flagged-button"
+                );
+
+            if (viewFlaggedButton) {
+                viewFlaggedButton.addEventListener(
+                    "click",
+                    () => {
+                        viewFlaggedContent(
+                            viewFlaggedButton.dataset.flagged
+                        );
+                    }
+                );
+            }
+
+            const flagMessageButton =
+                element.querySelector(
+                    ".flag-message-button"
+                );
+
+            if (flagMessageButton) {
+                flagMessageButton.addEventListener(
+                    "click",
+                    () => {
+                        flagMessage(message);
+                    }
+                );
+            }
+
             messagesElement.appendChild(
                 element
             );
@@ -1353,6 +1738,92 @@ function renderMessages() {
 
 }
 
+
+// ============================================================
+// FLAG MESSAGE (USER)
+// ============================================================
+
+async function flagMessage(message) {
+    if (!message) return;
+
+    const authorDisplay =
+        cleanDisplayName(
+            message.displayName || message.author
+        );
+
+    const type =
+        message.imageUrl ? "image" : "text";
+
+    const content =
+        message.imageUrl || message.text || "";
+
+    const flaggedId = await recordFlaggedAttempt({
+        type,
+        reason: "User flagged",
+        content
+    });
+
+    await postSystemMessage(
+        `🚩 ${cleanDisplayName(profile.displayName)} flagged a message by ${authorDisplay}.`,
+        flaggedId
+    );
+}
+
+// ============================================================
+// VIEW FLAGGED CONTENT (ADMIN)
+// ============================================================
+
+async function viewFlaggedContent(flaggedId) {
+    if (!currentAdmin) return;
+
+    try {
+        const docRef = doc(
+            db,
+            "rooms",
+            currentRoom,
+            "flagged",
+            flaggedId
+        );
+
+        const snapshot = await getDoc(docRef);
+
+        if (!snapshot.exists()) {
+            alert("Flagged content not found.");
+            return;
+        }
+
+        const data = snapshot.data();
+        const container = $("flaggedContent");
+        container.innerHTML = "";
+
+        const info = document.createElement("div");
+        info.innerHTML = `
+            <p><strong>User:</strong> ${escapeHTML(cleanDisplayName(data.displayName || data.author))}</p>
+            <p><strong>Type:</strong> ${escapeHTML(data.type)}</p>
+            <p><strong>Reason:</strong> ${escapeHTML(data.reason || "")}</p>
+            <p><strong>When:</strong> ${data.createdAt?.toDate ? data.createdAt.toDate().toLocaleString() : ""}</p>
+        `;
+        container.appendChild(info);
+
+        if (data.type === "image" && data.content) {
+            const img = document.createElement("img");
+            img.src = data.content;
+            img.className = "flagged-image";
+            img.alt = "flagged image";
+            container.appendChild(img);
+        } else if (data.type === "text") {
+            const pre = document.createElement("pre");
+            pre.className = "flagged-text";
+            pre.textContent = data.content || "";
+            container.appendChild(pre);
+        }
+
+        $("flaggedModal").classList.remove("hidden");
+    } catch (error) {
+        console.error(error);
+        alert("Unable to load flagged content.");
+    }
+}
 
 // ============================================================
 // FORMAT TEXT
